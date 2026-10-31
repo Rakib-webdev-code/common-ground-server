@@ -28,6 +28,56 @@ app.get('/', (req, res) => {
   res.send('Common Ground server is running');
 });
 
+app.get('/api/events', async (req, res) => {
+  try {
+    const events = await eventsCollection
+      .find({
+        eventDate: { $gt: new Date() },
+      })
+      .sort({ eventDate: 1 })
+      .toArray();
+
+    res.status(200).json({
+      success: true,
+      data: events,
+    });
+  } catch (error) {
+    console.error('Error fetching events:', error.message);
+
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch events',
+    });
+  }
+});
+
+app.get('/api/events/recent', async (req, res) => {
+  try {
+    const recentEvents = await eventsCollection
+      .find({
+        eventDate: { $gt: new Date() },
+      })
+      .sort({ eventDate: 1 })
+      .limit(6)
+      .toArray();
+
+    res.status(200).json({
+      success: true,
+      data: recentEvents,
+    });
+  } catch (error) {
+    console.error('Error fetching recent events:', error.message);
+
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch recent events',
+    });
+  }
+});
+
+
+
+
 app.listen(port, () => {
   console.log(`Server is running on port ${port}`);
 });
