@@ -2,7 +2,7 @@
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
-import { MongoClient } from 'mongodb';
+import { MongoClient, ObjectId } from 'mongodb';
 import { verifyToken } from './middlewares/verify-token.js';
 
 const app = express();
@@ -173,6 +173,44 @@ app.post('/api/events', verifyToken, async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to create event.',
+    });
+  }
+});
+
+// Get a single event by ID
+app.get('/api/events/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Validate MongoDB ObjectId
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid event ID.',
+      });
+    }
+
+    const event = await eventsCollection.findOne({
+      _id: new ObjectId(id),
+    });
+
+    if (!event) {
+      return res.status(404).json({
+        success: false,
+        message: 'Event not found.',
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      data: event,
+    });
+  } catch (error) {
+    console.error('Error fetching event:', error.message);
+
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch event.',
     });
   }
 });
