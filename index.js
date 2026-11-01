@@ -1,9 +1,8 @@
-
-import 'dotenv/config';
-import express from 'express';
-import cors from 'cors';
-import { MongoClient, ObjectId } from 'mongodb';
-import { verifyToken } from './middlewares/verify-token.js';
+import "dotenv/config";
+import express from "express";
+import cors from "cors";
+import { MongoClient, ObjectId } from "mongodb";
+import { verifyToken } from "./middlewares/verify-token.js";
 
 const app = express();
 const port = process.env.PORT || 5000;
@@ -17,25 +16,37 @@ const client = new MongoClient(process.env.MONGODB_URI);
 
 try {
   // await client.connect();
-  await client.db('admin').command({ ping: 1 });
-  console.log('Connected to MongoDB!');
+  await client.db("admin").command({ ping: 1 });
+  console.log("Connected to MongoDB!");
 } catch (error) {
-  console.error('MongoDB connection failed:', error.message);
+  console.error("MongoDB connection failed:", error.message);
   process.exit(1);
 }
 
 // Database and collections
 const db = client.db(process.env.MONGODB_DATABASE);
-const eventsCollection = db.collection('events');
-const joinedEventsCollection = db.collection('joinedEvents');
+const eventsCollection = db.collection("events");
+const joinedEventsCollection = db.collection("joinedEvents");
+
+// Create a unique index to prevent duplicate event registrations
+await joinedEventsCollection.createIndex(
+  {
+    userId: 1,
+    eventId: 1,
+  },
+  {
+    unique: true,
+    name: "unique_user_event_registration",
+  },
+);
 
 // Root route
-app.get('/', (req, res) => {
-  res.send('Common Ground server is running');
+app.get("/", (req, res) => {
+  res.send("Common Ground server is running");
 });
 
 // Get all upcoming events
-app.get('/api/events', async (req, res) => {
+app.get("/api/events", async (req, res) => {
   try {
     const events = await eventsCollection
       .find({
@@ -49,17 +60,17 @@ app.get('/api/events', async (req, res) => {
       data: events,
     });
   } catch (error) {
-    console.error('Error fetching events:', error.message);
+    console.error("Error fetching events:", error.message);
 
     res.status(500).json({
       success: false,
-      message: 'Failed to fetch events',
+      message: "Failed to fetch events",
     });
   }
 });
 
 // Get six nearest upcoming events
-app.get('/api/events/recent', async (req, res) => {
+app.get("/api/events/recent", async (req, res) => {
   try {
     const recentEvents = await eventsCollection
       .find({
@@ -74,18 +85,17 @@ app.get('/api/events/recent', async (req, res) => {
       data: recentEvents,
     });
   } catch (error) {
-    console.error('Error fetching recent events:', error.message);
+    console.error("Error fetching recent events:", error.message);
 
     res.status(500).json({
       success: false,
-      message: 'Failed to fetch recent events',
+      message: "Failed to fetch recent events",
     });
   }
 });
 
-
 // Get events created by the authenticated user (Protected API)
-app.get('/api/events/my-events', verifyToken, async (req, res) => {
+app.get("/api/events/my-events", verifyToken, async (req, res) => {
   try {
     const myEvents = await eventsCollection
       .find({
@@ -99,45 +109,109 @@ app.get('/api/events/my-events', verifyToken, async (req, res) => {
       data: myEvents,
     });
   } catch (error) {
-    console.error('Error fetching user events:', error.message);
+    console.error("Error fetching user events:", error.message);
 
     return res.status(500).json({
       success: false,
-      message: 'Failed to fetch your events.',
+      message: "Failed to fetch your events.",
     });
   }
 });
 
+// Join an upcoming event (Protected API)
+app.post("/api/events/:id/join", verifyToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Validate MongoDB ObjectId
+    if (!/^[0-9a-fA-F]{24}$/.test(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid event ID.",
+      });
+    }
+
+    const eventId = new ObjectId(id);
+
+    // Find the event
+    const event = await eventsCollection.findOne({
+      _id: eventId,
+    });
+
+    // Check if event exists
+    if (!event) {
+      return res.status(404).json({
+        success: false,
+        message: "Event not found.",
+      });
+    }
+
+    // Validate event date
+    const eventDate = new Date(event.eventDate);
+
+    if (Number.isNaN(eventDate.getTime()) || eventDate <= new Date()) {
+      return res.status(400).json({
+        success: false,
+        message: "You cannot join an invalid or past event.",
+      });
+    }
+    // Prepare registration document
+    const registration = {
+      userId: req.user.id,
+      userEmail: req.user.email,
+      eventId: eventId,
+      joinedAt: new Date(),
+    };
+
+    // Save registration
+    await joinedEventsCollection.insertOne(registration);
+
+    return res.status(201).json({
+      success: true,
+      message: "You have successfully joined the event!",
+      data: registration,
+    });
+  } catch (error) {
+    // Handle duplicate registration
+    if (error.code === 11000) {
+      return res.status(409).json({
+        success: false,
+        message: "You have already joined this event.",
+      });
+    }
+
+    console.error("Error joining event:", error.message);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to join event.",
+    });
+  }
+});
 
 // Create a new event (Protected API)
-app.post('/api/events', verifyToken, async (req, res) => {
+app.post("/api/events", verifyToken, async (req, res) => {
   try {
-    const {
-      title,
-      description,
-      eventType,
-      thumbnail,
-      location,
-      eventDate,
-    } = req.body;
+    const { title, description, eventType, thumbnail, location, eventDate } =
+      req.body;
 
     // Validate required fields
     if (
-      typeof title !== 'string' ||
+      typeof title !== "string" ||
       !title.trim() ||
-      typeof description !== 'string' ||
+      typeof description !== "string" ||
       !description.trim() ||
-      typeof eventType !== 'string' ||
+      typeof eventType !== "string" ||
       !eventType.trim() ||
-      typeof thumbnail !== 'string' ||
+      typeof thumbnail !== "string" ||
       !thumbnail.trim() ||
-      typeof location !== 'string' ||
+      typeof location !== "string" ||
       !location.trim() ||
       !eventDate
     ) {
       return res.status(400).json({
         success: false,
-        message: 'All event fields are required.',
+        message: "All event fields are required.",
       });
     }
 
@@ -145,13 +219,13 @@ app.post('/api/events', verifyToken, async (req, res) => {
     try {
       const imageUrl = new URL(thumbnail);
 
-      if (!['http:', 'https:'].includes(imageUrl.protocol)) {
-        throw new Error('Invalid image URL');
+      if (!["http:", "https:"].includes(imageUrl.protocol)) {
+        throw new Error("Invalid image URL");
       }
     } catch {
       return res.status(400).json({
         success: false,
-        message: 'Please provide a valid thumbnail URL.',
+        message: "Please provide a valid thumbnail URL.",
       });
     }
 
@@ -165,7 +239,7 @@ app.post('/api/events', verifyToken, async (req, res) => {
     ) {
       return res.status(400).json({
         success: false,
-        message: 'Event date must be a valid future date.',
+        message: "Event date must be a valid future date.",
       });
     }
 
@@ -192,24 +266,24 @@ app.post('/api/events', verifyToken, async (req, res) => {
 
     res.status(201).json({
       success: true,
-      message: 'Event created successfully!',
+      message: "Event created successfully!",
       data: {
         _id: result.insertedId,
         ...newEvent,
       },
     });
   } catch (error) {
-    console.error('Error creating event:', error.message);
+    console.error("Error creating event:", error.message);
 
     res.status(500).json({
       success: false,
-      message: 'Failed to create event.',
+      message: "Failed to create event.",
     });
   }
 });
 
 // Update an event (Protected API - Creator only)
-app.patch('/api/events/:id', verifyToken, async (req, res) => {
+app.patch("/api/events/:id", verifyToken, async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -217,31 +291,31 @@ app.patch('/api/events/:id', verifyToken, async (req, res) => {
     if (!/^[0-9a-fA-F]{24}$/.test(id)) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid event ID.',
+        message: "Invalid event ID.",
       });
     }
 
     // Validate request body
     if (
       !req.body ||
-      typeof req.body !== 'object' ||
+      typeof req.body !== "object" ||
       Array.isArray(req.body) ||
       Object.keys(req.body).length === 0
     ) {
       return res.status(400).json({
         success: false,
-        message: 'At least one field is required to update.',
+        message: "At least one field is required to update.",
       });
     }
 
     // Only these fields can be updated
     const allowedFields = [
-      'title',
-      'description',
-      'eventType',
-      'thumbnail',
-      'location',
-      'eventDate',
+      "title",
+      "description",
+      "eventType",
+      "thumbnail",
+      "location",
+      "eventDate",
     ];
 
     const receivedFields = Object.keys(req.body);
@@ -249,7 +323,7 @@ app.patch('/api/events/:id', verifyToken, async (req, res) => {
     if (receivedFields.some((field) => !allowedFields.includes(field))) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid or protected field provided.',
+        message: "Invalid or protected field provided.",
       });
     }
 
@@ -257,17 +331,14 @@ app.patch('/api/events/:id', verifyToken, async (req, res) => {
 
     // Validate and prepare text fields
     for (const field of [
-      'title',
-      'description',
-      'eventType',
-      'thumbnail',
-      'location',
+      "title",
+      "description",
+      "eventType",
+      "thumbnail",
+      "location",
     ]) {
       if (field in req.body) {
-        if (
-          typeof req.body[field] !== 'string' ||
-          !req.body[field].trim()
-        ) {
+        if (typeof req.body[field] !== "string" || !req.body[field].trim()) {
           return res.status(400).json({
             success: false,
             message: `${field} must be a non-empty string.`,
@@ -279,27 +350,27 @@ app.patch('/api/events/:id', verifyToken, async (req, res) => {
     }
 
     // Validate thumbnail URL
-    if ('thumbnail' in updateData) {
+    if ("thumbnail" in updateData) {
       try {
         const imageUrl = new URL(updateData.thumbnail);
 
-        if (!['http:', 'https:'].includes(imageUrl.protocol)) {
-          throw new Error('Invalid image URL');
+        if (!["http:", "https:"].includes(imageUrl.protocol)) {
+          throw new Error("Invalid image URL");
         }
       } catch {
         return res.status(400).json({
           success: false,
-          message: 'Please provide a valid thumbnail URL.',
+          message: "Please provide a valid thumbnail URL.",
         });
       }
     }
 
     // Validate event date
-    if ('eventDate' in req.body) {
-      if (typeof req.body.eventDate !== 'string') {
+    if ("eventDate" in req.body) {
+      if (typeof req.body.eventDate !== "string") {
         return res.status(400).json({
           success: false,
-          message: 'Event date must be a valid date string.',
+          message: "Event date must be a valid date string.",
         });
       }
 
@@ -311,7 +382,7 @@ app.patch('/api/events/:id', verifyToken, async (req, res) => {
       ) {
         return res.status(400).json({
           success: false,
-          message: 'Event date must be a valid future date.',
+          message: "Event date must be a valid future date.",
         });
       }
 
@@ -327,7 +398,7 @@ app.patch('/api/events/:id', verifyToken, async (req, res) => {
     if (!existingEvent) {
       return res.status(404).json({
         success: false,
-        message: 'Event not found.',
+        message: "Event not found.",
       });
     }
 
@@ -335,7 +406,7 @@ app.patch('/api/events/:id', verifyToken, async (req, res) => {
     if (existingEvent.creatorId !== req.user.id) {
       return res.status(403).json({
         success: false,
-        message: 'You are not allowed to update this event.',
+        message: "You are not allowed to update this event.",
       });
     }
 
@@ -349,13 +420,13 @@ app.patch('/api/events/:id', verifyToken, async (req, res) => {
       },
       {
         $set: updateData,
-      }
+      },
     );
 
     if (result.matchedCount === 0) {
       return res.status(404).json({
         success: false,
-        message: 'Event not found.',
+        message: "Event not found.",
       });
     }
 
@@ -366,22 +437,21 @@ app.patch('/api/events/:id', verifyToken, async (req, res) => {
 
     res.status(200).json({
       success: true,
-      message: 'Event updated successfully!',
+      message: "Event updated successfully!",
       data: updatedEvent,
     });
   } catch (error) {
-    console.error('Error updating event:', error.message);
+    console.error("Error updating event:", error.message);
 
     res.status(500).json({
       success: false,
-      message: 'Failed to update event.',
+      message: "Failed to update event.",
     });
   }
 });
 
-
 // Delete an event (Protected API - Creator only)
-app.delete('/api/events/:id', verifyToken, async (req, res) => {
+app.delete("/api/events/:id", verifyToken, async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -389,7 +459,7 @@ app.delete('/api/events/:id', verifyToken, async (req, res) => {
     if (!/^[0-9a-fA-F]{24}$/.test(id)) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid event ID.',
+        message: "Invalid event ID.",
       });
     }
 
@@ -404,7 +474,7 @@ app.delete('/api/events/:id', verifyToken, async (req, res) => {
     if (!existingEvent) {
       return res.status(404).json({
         success: false,
-        message: 'Event not found.',
+        message: "Event not found.",
       });
     }
 
@@ -412,7 +482,7 @@ app.delete('/api/events/:id', verifyToken, async (req, res) => {
     if (existingEvent.creatorId !== req.user.id) {
       return res.status(403).json({
         success: false,
-        message: 'You are not allowed to delete this event.',
+        message: "You are not allowed to delete this event.",
       });
     }
 
@@ -425,26 +495,26 @@ app.delete('/api/events/:id', verifyToken, async (req, res) => {
     if (result.deletedCount === 0) {
       return res.status(404).json({
         success: false,
-        message: 'Event not found.',
+        message: "Event not found.",
       });
     }
 
     return res.status(200).json({
       success: true,
-      message: 'Event deleted successfully.',
+      message: "Event deleted successfully.",
     });
   } catch (error) {
-    console.error('Error deleting event:', error.message);
+    console.error("Error deleting event:", error.message);
 
     return res.status(500).json({
       success: false,
-      message: 'Failed to delete event.',
+      message: "Failed to delete event.",
     });
   }
 });
 
 // Get a single event by ID
-app.get('/api/events/:id', async (req, res) => {
+app.get("/api/events/:id", async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -452,7 +522,7 @@ app.get('/api/events/:id', async (req, res) => {
     if (!ObjectId.isValid(id)) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid event ID.',
+        message: "Invalid event ID.",
       });
     }
 
@@ -463,7 +533,7 @@ app.get('/api/events/:id', async (req, res) => {
     if (!event) {
       return res.status(404).json({
         success: false,
-        message: 'Event not found.',
+        message: "Event not found.",
       });
     }
 
@@ -472,20 +542,20 @@ app.get('/api/events/:id', async (req, res) => {
       data: event,
     });
   } catch (error) {
-    console.error('Error fetching event:', error.message);
+    console.error("Error fetching event:", error.message);
 
     res.status(500).json({
       success: false,
-      message: 'Failed to fetch event.',
+      message: "Failed to fetch event.",
     });
   }
 });
 
 // Temporary JWT verification test route
-app.get('/api/auth-check', verifyToken, (req, res) => {
+app.get("/api/auth-check", verifyToken, (req, res) => {
   res.status(200).json({
     success: true,
-    message: 'JWT verified successfully!',
+    message: "JWT verified successfully!",
     user: {
       id: req.user.id,
     },
