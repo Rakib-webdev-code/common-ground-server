@@ -97,11 +97,16 @@ app.post('/api/events', verifyToken, async (req, res) => {
 
     // Validate required fields
     if (
-      !title?.trim() ||
-      !description?.trim() ||
-      !eventType?.trim() ||
-      !thumbnail?.trim() ||
-      !location?.trim() ||
+      typeof title !== 'string' ||
+      !title.trim() ||
+      typeof description !== 'string' ||
+      !description.trim() ||
+      typeof eventType !== 'string' ||
+      !eventType.trim() ||
+      typeof thumbnail !== 'string' ||
+      !thumbnail.trim() ||
+      typeof location !== 'string' ||
+      !location.trim() ||
       !eventDate
     ) {
       return res.status(400).json({
@@ -173,6 +178,177 @@ app.post('/api/events', verifyToken, async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to create event.',
+    });
+  }
+});
+
+// Update an event (Protected API - Creator only)
+app.patch('/api/events/:id', verifyToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Validate MongoDB ObjectId
+    if (!/^[0-9a-fA-F]{24}$/.test(id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid event ID.',
+      });
+    }
+
+    // Validate request body
+    if (
+      !req.body ||
+      typeof req.body !== 'object' ||
+      Array.isArray(req.body) ||
+      Object.keys(req.body).length === 0
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: 'At least one field is required to update.',
+      });
+    }
+
+    // Only these fields can be updated
+    const allowedFields = [
+      'title',
+      'description',
+      'eventType',
+      'thumbnail',
+      'location',
+      'eventDate',
+    ];
+
+    const receivedFields = Object.keys(req.body);
+
+    if (receivedFields.some((field) => !allowedFields.includes(field))) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid or protected field provided.',
+      });
+    }
+
+    const updateData = {};
+
+    // Validate and prepare text fields
+    for (const field of [
+      'title',
+      'description',
+      'eventType',
+      'thumbnail',
+      'location',
+    ]) {
+      if (field in req.body) {
+        if (
+          typeof req.body[field] !== 'string' ||
+          !req.body[field].trim()
+        ) {
+          return res.status(400).json({
+            success: false,
+            message: `${field} must be a non-empty string.`,
+          });
+        }
+
+        updateData[field] = req.body[field].trim();
+      }
+    }
+
+    // Validate thumbnail URL
+    if ('thumbnail' in updateData) {
+      try {
+        const imageUrl = new URL(updateData.thumbnail);
+
+        if (!['http:', 'https:'].includes(imageUrl.protocol)) {
+          throw new Error('Invalid image URL');
+        }
+      } catch {
+        return res.status(400).json({
+          success: false,
+          message: 'Please provide a valid thumbnail URL.',
+        });
+      }
+    }
+
+    // Validate event date
+    if ('eventDate' in req.body) {
+      if (typeof req.body.eventDate !== 'string') {
+        return res.status(400).json({
+          success: false,
+          message: 'Event date must be a valid date string.',
+        });
+      }
+
+      const parsedEventDate = new Date(req.body.eventDate);
+
+      if (
+        Number.isNaN(parsedEventDate.getTime()) ||
+        parsedEventDate <= new Date()
+      ) {
+        return res.status(400).json({
+          success: false,
+          message: 'Event date must be a valid future date.',
+        });
+      }
+
+      updateData.eventDate = parsedEventDate;
+    }
+
+    // Find event
+    const eventId = new ObjectId(id);
+    const existingEvent = await eventsCollection.findOne({
+      _id: eventId,
+    });
+
+    if (!existingEvent) {
+      return res.status(404).json({
+        success: false,
+        message: 'Event not found.',
+      });
+    }
+
+    // Verify event ownership
+    if (existingEvent.creatorId !== req.user.id) {
+      return res.status(403).json({
+        success: false,
+        message: 'You are not allowed to update this event.',
+      });
+    }
+
+    // Update event with ownership protection
+    updateData.updatedAt = new Date();
+
+    const result = await eventsCollection.updateOne(
+      {
+        _id: eventId,
+        creatorId: req.user.id,
+      },
+      {
+        $set: updateData,
+      }
+    );
+
+    if (result.matchedCount === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Event not found.',
+      });
+    }
+
+    // Get updated event
+    const updatedEvent = await eventsCollection.findOne({
+      _id: eventId,
+    });
+
+    res.status(200).json({
+      success: true,
+      message: 'Event updated successfully!',
+      data: updatedEvent,
+    });
+  } catch (error) {
+    console.error('Error updating event:', error.message);
+
+    res.status(500).json({
+      success: false,
+      message: 'Failed to update event.',
     });
   }
 });
