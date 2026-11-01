@@ -613,6 +613,58 @@ app.get("/api/events/:id", async (req, res) => {
   }
 });
 
+
+// Get community impact statistics (Protected API)
+app.get("/api/dashboard/stats", verifyToken, async (req, res) => {
+  try {
+    const now = new Date();
+    const userId = req.user.id;
+
+    const [
+      totalEvents,
+      upcomingEvents,
+      participantIds,
+      myCreatedEvents,
+      myJoinedEvents,
+    ] = await Promise.all([
+      eventsCollection.countDocuments({}),
+
+      eventsCollection.countDocuments({
+        eventDate: { $gt: now },
+      }),
+
+      joinedEventsCollection.distinct("userId"),
+
+      eventsCollection.countDocuments({
+        creatorId: userId,
+      }),
+
+      joinedEventsCollection.countDocuments({
+        userId,
+      }),
+    ]);
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        totalEvents,
+        upcomingEvents,
+        totalParticipants: participantIds.length,
+        myCreatedEvents,
+        myJoinedEvents,
+      },
+    });
+  } catch (error) {
+    console.error("Error fetching dashboard statistics:", error.message);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch dashboard statistics.",
+    });
+  }
+});
+
+
 // Temporary JWT verification test route
 app.get("/api/auth-check", verifyToken, (req, res) => {
   res.status(200).json({
