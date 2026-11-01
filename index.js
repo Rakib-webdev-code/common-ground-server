@@ -379,6 +379,70 @@ app.patch('/api/events/:id', verifyToken, async (req, res) => {
   }
 });
 
+
+// Delete an event (Protected API - Creator only)
+app.delete('/api/events/:id', verifyToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Validate MongoDB ObjectId
+    if (!/^[0-9a-fA-F]{24}$/.test(id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid event ID.',
+      });
+    }
+
+    const eventId = new ObjectId(id);
+
+    // Find the event
+    const existingEvent = await eventsCollection.findOne({
+      _id: eventId,
+    });
+
+    // Check if event exists
+    if (!existingEvent) {
+      return res.status(404).json({
+        success: false,
+        message: 'Event not found.',
+      });
+    }
+
+    // Verify event ownership
+    if (existingEvent.creatorId !== req.user.id) {
+      return res.status(403).json({
+        success: false,
+        message: 'You are not allowed to delete this event.',
+      });
+    }
+
+    // Delete only if the authenticated user is the creator
+    const result = await eventsCollection.deleteOne({
+      _id: eventId,
+      creatorId: req.user.id,
+    });
+
+    if (result.deletedCount === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Event not found.',
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: 'Event deleted successfully.',
+    });
+  } catch (error) {
+    console.error('Error deleting event:', error.message);
+
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to delete event.',
+    });
+  }
+});
+
 // Get a single event by ID
 app.get('/api/events/:id', async (req, res) => {
   try {
