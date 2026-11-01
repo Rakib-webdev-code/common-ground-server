@@ -118,6 +118,68 @@ app.get("/api/events/my-events", verifyToken, async (req, res) => {
   }
 });
 
+
+// Get events joined by the authenticated user (Protected API)
+app.get("/api/events/joined", verifyToken, async (req, res) => {
+  try {
+    const registrations = await joinedEventsCollection
+      .find({
+        userId: req.user.id,
+      })
+      .toArray();
+
+    if (registrations.length === 0) {
+      return res.status(200).json({
+        success: true,
+        count: 0,
+        data: [],
+      });
+    }
+
+    const eventIds = registrations.map(
+      (registration) => registration.eventId,
+    );
+
+    const events = await eventsCollection
+      .find({
+        _id: { $in: eventIds },
+      })
+      .toArray();
+
+    const registrationMap = new Map(
+      registrations.map((registration) => [
+        registration.eventId.toString(),
+        registration.joinedAt,
+      ]),
+    );
+
+    const joinedEvents = events
+      .map((event) => ({
+        ...event,
+        joinedAt: registrationMap.get(event._id.toString()),
+      }))
+      .sort(
+        (a, b) =>
+          new Date(a.eventDate).getTime() -
+          new Date(b.eventDate).getTime(),
+      );
+
+    return res.status(200).json({
+      success: true,
+      count: joinedEvents.length,
+      data: joinedEvents,
+    });
+  } catch (error) {
+    console.error("Error fetching joined events:", error.message);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch joined events.",
+    });
+  }
+});
+
+
 // Join an upcoming event (Protected API)
 app.post("/api/events/:id/join", verifyToken, async (req, res) => {
   try {
