@@ -83,6 +83,32 @@ app.get('/api/events/recent', async (req, res) => {
   }
 });
 
+
+// Get events created by the authenticated user (Protected API)
+app.get('/api/events/my-events', verifyToken, async (req, res) => {
+  try {
+    const myEvents = await eventsCollection
+      .find({
+        creatorId: req.user.id,
+      })
+      .sort({ eventDate: 1 })
+      .toArray();
+
+    return res.status(200).json({
+      success: true,
+      data: myEvents,
+    });
+  } catch (error) {
+    console.error('Error fetching user events:', error.message);
+
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to fetch your events.',
+    });
+  }
+});
+
+
 // Create a new event (Protected API)
 app.post('/api/events', verifyToken, async (req, res) => {
   try {
