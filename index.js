@@ -8,24 +8,9 @@ const app = express();
 const port = process.env.PORT || 5000;
 
 // Middleware
-const allowedOrigins = [
-  process.env.CLIENT_URL,
-  "http://localhost:3000",
-].filter(Boolean);
-
-app.use(
-  cors({
-    origin: (origin, callback) => {
-      if (!origin || allowedOrigins.includes(origin)) {
-        return callback(null, true);
-      }
-
-      return callback(null, false);
-    },
-  })
-);
-
+app.use(cors());
 app.use(express.json());
+
 
 // MongoDB connection
 const client = new MongoClient(process.env.MONGODB_URI);
